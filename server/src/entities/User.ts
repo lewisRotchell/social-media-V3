@@ -14,4 +14,8 @@ export class Users extends BaseEntity {
 
   @Column()
   password!: string;
+
+  //whenevr we craete a refresh token we are going to pass waht the current token version is
+  @Column({default: 0})
+  tokenVersion!: number;
 }

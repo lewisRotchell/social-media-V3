@@ -1,5 +1,5 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "dotenv/config";
+//No need to use dotenv.config() when it is imported like this
 import "reflect-metadata";
 import { createConnection } from "typeorm";
 import express from "express";
@@ -10,6 +10,11 @@ import { buildSchema } from "type-graphql";
 import { UserResolver } from "./resolvers/User";
 import { MyContext } from "./types";
 import { Users } from "./entities/User";
+import cookieParser from "cookie-parser";
+import { verify } from "argon2";
+import { createAccessToken, createRefreshToken } from "./utils/auth";
+import { verify as verifyJwt } from "jsonwebtoken";
+import { sendRefreshToken } from "./utils/sendRefreshToken";
 
 const main = async () => {
   await createConnection({
@@ -20,12 +25,44 @@ const main = async () => {
     password: process.env.PASSWORD,
     database: "jwtauth",
     logging: !__prod__,
-    // synchronize: true,
+    synchronize: true,
     migrations: [],
     entities: [Users],
   });
 
   const app = express();
+  app.use(cookieParser());
+  //cookie parser parses cookie and puts it in req.cookies
+  app.post("/refresh_token", async (req, res) => {
+    const token = req.cookies.jid;
+    if (!token) {
+      return res.send({ ok: false, accessToken: "" });
+    }
+    let payload: any = null;
+    try {
+      payload = verifyJwt(token, process.env.COOKIE_SECRET!);
+    } catch (err) {
+      console.log(err);
+      return res.send({ ok: false, accessToken: "" });
+    }
+
+    //Token is valid and we can send back an access token
+    const user = await Users.findOne({ id: payload.userId });
+
+    if (!user) {
+      return res.send({ ok: false, accessToken: "" });
+    }
+
+    if (user.tokenVersion !== payload.tokenVersion){
+      return res.send({ ok: false, accessToken: "" });
+    }
+
+    //refesh the refresh token
+    sendRefreshToken(res,createRefreshToken(user))
+
+
+    return res.send({ ok: true, accessToken: createAccessToken(user) });
+  });
 
   const apolloServer = new ApolloServer({
     plugins: [ApolloServerPluginLandingPageGraphQLPlayground()],

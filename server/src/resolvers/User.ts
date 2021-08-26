@@ -3,18 +3,23 @@ import {
   Arg,
   Ctx,
   Field,
+  Int,
   Mutation,
   ObjectType,
   Query,
   Resolver,
+  UseMiddleware,
 } from "type-graphql";
 import argon2 from "argon2";
 
 import { UserInput } from "./UserInput";
 import { validateRegister } from "../utils/vaildateRegister";
-import { sign } from "jsonwebtoken";
 import { MyContext } from "src/types";
 import { __prod__ } from "../constants";
+import { createAccessToken, createRefreshToken } from "../utils/auth";
+import { isAuth } from "../middleware/isAuthMiddleware";
+import { sendRefreshToken } from "../utils/sendRefreshToken";
+import { getConnection } from "typeorm";
 
 @ObjectType()
 class FieldError {
@@ -43,6 +48,25 @@ export class UserResolver {
   hello() {
     return "hi";
   }
+
+  //Protected Route
+  @Query(() => String)
+  @UseMiddleware(isAuth)
+  bye(@Ctx() { payload }: MyContext) {
+    return `Your user id is: ${payload?.userId}`;
+  }
+
+  //Make this role: admin only
+  @Mutation(()=> Boolean)
+  async revokeRefreshTokensForUser(
+    @Arg('userId', () => Int) userId: number
+  ) {
+    await getConnection().getRepository(Users).increment({id: userId}, 'tokenVersion', 1)
+    
+    return true
+  }
+  
+
 
   @Mutation(() => UserResponse)
   async register(@Arg("options") options: UserInput): Promise<UserResponse> {
@@ -110,25 +134,11 @@ export class UserResolver {
     //Access token should be set to something shorter
     //refresh token is longer and when it expires it auto logs them out (7days)
 
-    res.cookie(
-      "jid",
-      sign({ userId: user.id }, process.env.COOKIE_SECRET as string, {
-        expiresIn: "7d",
-      }),
-      {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: __prod__, //cookie only works in https
-      }
-    );
+ sendRefreshToken(res, createRefreshToken(user))
 
     return {
       // user,
-      accessToken: sign(
-        { userId: user.id },
-        process.env.JSONWEBTOKENSECRET as string,
-        { expiresIn: "15m" }
-      ),
+      accessToken: createAccessToken(user),
     };
   }
 }
