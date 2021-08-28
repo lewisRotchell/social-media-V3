@@ -15,6 +15,7 @@ import { verify } from "argon2";
 import { createAccessToken, createRefreshToken } from "./utils/auth";
 import { verify as verifyJwt } from "jsonwebtoken";
 import { sendRefreshToken } from "./utils/sendRefreshToken";
+import cors from "cors";
 
 const main = async () => {
   await createConnection({
@@ -31,6 +32,12 @@ const main = async () => {
   });
 
   const app = express();
+  app.use(
+    cors({
+      origin: "http://localhost:3000",
+      credentials: true,
+    })
+  );
   app.use(cookieParser());
   //cookie parser parses cookie and puts it in req.cookies
   app.post("/refresh_token", async (req, res) => {
@@ -53,13 +60,12 @@ const main = async () => {
       return res.send({ ok: false, accessToken: "" });
     }
 
-    if (user.tokenVersion !== payload.tokenVersion){
+    if (user.tokenVersion !== payload.tokenVersion) {
       return res.send({ ok: false, accessToken: "" });
     }
 
     //refesh the refresh token
-    sendRefreshToken(res,createRefreshToken(user))
-
+    sendRefreshToken(res, createRefreshToken(user));
 
     return res.send({ ok: true, accessToken: createAccessToken(user) });
   });
@@ -74,7 +80,7 @@ const main = async () => {
 
   await apolloServer.start();
 
-  apolloServer.applyMiddleware({ app });
+  apolloServer.applyMiddleware({ app, cors: false });
 
   app.listen(4000, () => {
     console.log("Server started on port 4000");
