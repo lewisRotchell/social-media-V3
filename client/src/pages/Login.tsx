@@ -2,13 +2,15 @@ import { Box, Button } from "@chakra-ui/react";
 import { Form, Formik } from "formik";
 import React from "react";
 import { RouteComponentProps } from "react-router-dom";
-import { useLoginMutation } from "../generated/graphql";
+import { MeDocument, MeQuery, useLoginMutation } from "../generated/graphql";
 import { InputField } from "../InputField";
-import { setAccessToken } from "../utils/accessToken";
+// import { setAccessToken } from "../utils/accessToken";
+import { useAccessToken } from "../context/AccessTokenProvider";
 import { toErrorMap } from "../utils/toErrorMap";
 
 export const Login: React.FC<RouteComponentProps> = ({ history }) => {
   const [login] = useLoginMutation();
+  const [accessToken, setAccessToken] = useAccessToken();
   return (
     <div>
       Login Page
@@ -20,11 +22,23 @@ export const Login: React.FC<RouteComponentProps> = ({ history }) => {
               email: values.email,
               password: values.password,
             },
+            //This updates the cache
+            update: (store, { data }) => {
+              if (!data) {
+                return null;
+              }
+              store.writeQuery<MeQuery>({
+                query: MeDocument,
+                data: {
+                  me: data.login.user,
+                },
+              });
+            },
           });
           console.log(response);
 
           if (response && response.data) {
-            setAccessToken(response.data.login.accessToken);
+            setAccessToken(response.data.login.accessToken!);
           }
 
           if (response.data?.login.errors) {
@@ -32,7 +46,7 @@ export const Login: React.FC<RouteComponentProps> = ({ history }) => {
           }
           if (response.data?.login.user) {
             //It Worked
-            history.push("/dashboard");
+            history.push("/");
           }
         }}
       >

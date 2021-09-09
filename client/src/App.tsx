@@ -1,71 +1,117 @@
-import React, { useState, useEffect } from "react";
-import {
-  ChakraProvider,
-  Box,
-  Text,
-  VStack,
-  Code,
-  Grid,
-  theme,
-} from "@chakra-ui/react";
-import { ColorModeSwitcher } from "./ColorModeSwitcher";
-import { BrowserRouter, Route, Switch, Link } from "react-router-dom";
-import { Home } from "./pages/Home";
-import { Login } from "./pages/Login";
-import { Register } from "./pages/Register";
-import { Bye } from "./pages/Bye";
+import { ColorModeScript } from "@chakra-ui/react";
+import React, { useState } from "react";
+import ReactDOM from "react-dom";
+import { ApolloProvider } from "@apollo/client";
+// import { getAccessToken, setAccessToken } from "./utils/accessToken";
+
+import { ApolloClient } from "apollo-client";
+import { InMemoryCache } from "apollo-cache-inmemory";
+import { HttpLink } from "apollo-link-http";
+import { onError } from "apollo-link-error";
+import { ApolloLink, Observable } from "apollo-link";
+import { TokenRefreshLink } from "apollo-link-token-refresh";
+import jwtDecode from "jwt-decode";
 // import { setAccessToken } from "./utils/accessToken";
 import { useAccessToken } from "./context/AccessTokenProvider";
+import { Routes } from "./Routes";
 
 export const App = () => {
   const [loading, setLoading] = useState(true);
   const [accessToken, setAccessToken] = useAccessToken();
 
-  useEffect(() => {
-    const createAccessToken = async () => {
-      const response = await fetch("http://localhost:4000/refresh_token", {
+  const cache = new InMemoryCache({});
+
+  const requestLink = new ApolloLink(
+    (operation, forward) =>
+      new Observable((observer) => {
+        let handle: any;
+        Promise.resolve(operation)
+          .then((operation) => {
+            // const accessToken = getAccessToken();
+            if (accessToken) {
+              operation.setContext({
+                headers: {
+                  authorization: `bearer ${accessToken}`,
+                },
+              });
+            }
+          })
+          .then(() => {
+            handle = forward(operation).subscribe({
+              next: observer.next.bind(observer),
+              error: observer.error.bind(observer),
+              complete: observer.complete.bind(observer),
+            });
+          })
+          .catch(observer.error.bind(observer));
+
+        return () => {
+          if (handle) handle.unsubscribe();
+        };
+      })
+  );
+
+  const tokenRefreshLink: any = new TokenRefreshLink({
+    accessTokenField: "accessToken",
+    //Checks if token is valid
+    isTokenValidOrUndefined: () => {
+      // const token = getAccessToken();
+
+      if (!accessToken) {
+        return true;
+      }
+
+      try {
+        const { exp }: any = jwtDecode(accessToken);
+        if (Date.now() >= exp * 1000) {
+          return false;
+        } else {
+          return true;
+        }
+      } catch {
+        return false;
+      }
+    },
+    //If the token is not valid, it's going to call this function and get a new access token
+    fetchAccessToken: () => {
+      return fetch("http://localhost:4000/refresh_token", {
         method: "POST",
         credentials: "include",
       });
-      const { accessToken } = await response.json();
+    },
+    //sets access token here
+    handleFetch: (accessToken) => {
       setAccessToken(accessToken);
-      setLoading(false);
-    };
-    createAccessToken();
-  }, []);
+    },
+    handleError: (err) => {
+      console.warn("Your refresh token is invalid. Try to relogin");
+      console.error(err);
+    },
+  });
 
-  if (loading) {
-    return <div>Loading...</div>;
-  }
+  //this gets called on every graphql request
+  //But only fetches access token  if the token is invalid
+  const client: any = new ApolloClient({
+    link: ApolloLink.from([
+      tokenRefreshLink,
+      onError(({ graphQLErrors, networkError }) => {
+        console.log(graphQLErrors);
+        console.log(networkError);
+      }),
+      requestLink,
+      new HttpLink({
+        uri: "http://localhost:4000/graphql",
+        credentials: "include",
+      }),
+    ]),
+    cache,
+  });
+
   return (
-    <ChakraProvider theme={theme}>
-      <BrowserRouter>
-        <Box>
-          <Grid>
-            <header>
-              <div>
-                <Link to="/dashboard">Home</Link>
-              </div>
-              <div>
-                <Link to="/register">Register</Link>
-              </div>
-              <div>
-                <Link to="/">Login</Link>
-              </div>
-              <div>
-                <Link to="/bye">Bye</Link>
-              </div>
-            </header>
-            <ColorModeSwitcher justifySelf="flex-end" />
-          </Grid>
-        </Box>
-        <Switch>
-          <Route exact path="/" component={Login} />
-          <Route exact path="/dashboard" component={Home} />
-          <Route exact path="/register" component={Register} />
-          <Route exact path="/bye" component={Bye} />
-        </Switch>
-      </BrowserRouter>
-    </ChakraProvider>
+    <>
+      <ApolloProvider client={client}>
+        <Routes />
+      </ApolloProvider>
+    </>
   );
 };
