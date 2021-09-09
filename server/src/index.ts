@@ -11,7 +11,6 @@ import { UserResolver } from "./resolvers/User";
 import { MyContext } from "./types";
 import { Users } from "./entities/User";
 import cookieParser from "cookie-parser";
-import { verify } from "argon2";
 import { createAccessToken, createRefreshToken } from "./utils/auth";
 import { verify as verifyJwt } from "jsonwebtoken";
 import { sendRefreshToken } from "./utils/sendRefreshToken";
@@ -82,8 +81,8 @@ const main = async () => {
 
   apolloServer.applyMiddleware({ app, cors: false });
 
-  app.listen(4000, () => {
-    console.log("Server started on port 4000");
+  app.listen(process.env.PORT || 4000, () => {
+    console.log(`Server started on port ${process.env.PORT}`);
   });
 };
 
