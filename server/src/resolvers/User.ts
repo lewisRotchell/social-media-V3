@@ -20,6 +20,7 @@ import { createAccessToken, createRefreshToken } from "../utils/auth";
 import { isAuth } from "../middleware/isAuthMiddleware";
 import { sendRefreshToken } from "../utils/sendRefreshToken";
 import { getConnection } from "typeorm";
+import { verify } from "jsonwebtoken";
 
 @ObjectType()
 class FieldError {
@@ -56,17 +57,44 @@ export class UserResolver {
     return `Your user id is: ${payload?.userId}`;
   }
 
-  //Make this role: admin only
-  @Mutation(()=> Boolean)
-  async revokeRefreshTokensForUser(
-    @Arg('userId', () => Int) userId: number
-  ) {
-    await getConnection().getRepository(Users).increment({id: userId}, 'tokenVersion', 1)
-    
-    return true
-  }
-  
+  @Query(() => Users, { nullable: true })
+  me(@Ctx() context: MyContext) {
+    const authorization = context.req.headers["authorization"];
 
+    if (!authorization) {
+      return null;
+    }
+
+    try {
+      const token = authorization?.split(" ")[1];
+      const payload: any = verify(
+        token,
+        process.env.JSONWEBTOKENSECRET as string
+      );
+      context.payload = payload as any;
+      return Users.findOne(payload.userId);
+    } catch (err) {
+      console.log(err);
+      return null;
+    }
+  }
+
+  @Mutation(() => Boolean)
+  async logout(@Ctx() { res }: MyContext) {
+    sendRefreshToken(res, "");
+
+    return true;
+  }
+
+  //Make this role: admin only
+  @Mutation(() => Boolean)
+  async revokeRefreshTokensForUser(@Arg("userId", () => Int) userId: number) {
+    await getConnection()
+      .getRepository(Users)
+      .increment({ id: userId }, "tokenVersion", 1);
+
+    return true;
+  }
 
   @Mutation(() => UserResponse)
   async register(@Arg("options") options: UserInput): Promise<UserResponse> {
@@ -134,11 +162,12 @@ export class UserResolver {
     //Access token should be set to something shorter
     //refresh token is longer and when it expires it auto logs them out (7days)
 
- sendRefreshToken(res, createRefreshToken(user))
+    sendRefreshToken(res, createRefreshToken(user));
 
     return {
       // user,
       accessToken: createAccessToken(user),
+      user,
     };
   }
 }
